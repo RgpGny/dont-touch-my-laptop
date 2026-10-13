@@ -74,6 +74,23 @@ jobs:
           rm "$RUNNER_TEMP/dtml.p12"
           security find-identity -p codesigning "$kc" | grep -q "$DTML_SIGN_SHA1" || { echo "certificate not found"; exit 1; }
 
+      # actool's helper (ibtoold) sometimes crashes on its first launch on a fresh runner, which
+      # fails electron-builder's icon step. Compile the icon once here, with retries, so the
+      # helper is up before the real build.
+      - name: Warm up actool
+        run: |
+          out="$RUNNER_TEMP/actool-warmup"
+          for i in 1 2 3; do
+            rm -rf "$out" && mkdir -p "$out"
+            if xcrun actool build/icon.icon --compile "$out" --app-icon icon --platform macosx \
+              --target-device mac --minimum-deployment-target 26.0 \
+              --output-partial-info-plist "$out/info.plist" >/dev/null; then
+              echo "actool ready (attempt $i)"; exit 0
+            fi
+            echo "actool failed (attempt $i), retrying"; sleep 10
+          done
+          exit 1
+
       - name: Build
         run: |
           pnpm build:native
