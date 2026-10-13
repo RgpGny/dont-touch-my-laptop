@@ -66,13 +66,11 @@ jobs:
           rm "$RUNNER_TEMP/dtml.p12"
           security find-identity -p codesigning "$kc" | grep -q "$DTML_SIGN_SHA1" || { echo "certificate not found"; exit 1; }
 
-      - name: Build and publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
         run: |
           pnpm build:native
           pnpm build
-          pnpm exec electron-builder --mac --publish always
+          pnpm exec electron-builder --mac --publish never
 
       - name: Verify signature
         run: |
@@ -81,17 +79,24 @@ jobs:
           codesign -d -r- "$app" 2>&1 | tee /dev/stderr | grep -qi "certificate leaf = H\"$DTML_SIGN_SHA1\"" \
             || { echo "app is not signed with the project certificate"; exit 1; }
           lipo -archs "$app/Contents/MacOS/Don't Touch My Laptop"
+          grep -q "repo: dont-touch-my-laptop" "$app/Contents/Resources/app-update.yml"
 
-      - name: Checksums and release notes
+      # The tag is created here, on this repo's main branch (the source commit lives in the
+      # private repo). latest-mac.yml is what installed apps read to find the update.
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
         run: |
           cd dist
+          files=(DontTouchMyLaptop-*.dmg DontTouchMyLaptop-*.dmg.blockmap DontTouchMyLaptop-*.zip DontTouchMyLaptop-*.zip.blockmap latest-mac.yml)
+          ls -la "${files[@]}"
           shasum -a 256 DontTouchMyLaptop-*.dmg DontTouchMyLaptop-*.zip > SHA256SUMS.txt
-          gh release upload "$TAG" SHA256SUMS.txt --clobber -R "$GITHUB_REPOSITORY"
           notes="../docs/release-notes/$TAG.md"
-          if [ -f "$notes" ]; then gh release edit "$TAG" --notes-file "$notes" -R "$GITHUB_REPOSITORY"; fi
+          [ -f "$notes" ] || notes=/dev/null
+          gh release create "$TAG" "${files[@]}" SHA256SUMS.txt -R "$GITHUB_REPOSITORY" \
+            --target main --title "${TAG#v}" --notes-file "$notes" \
+            $([[ "$TAG" == *-* ]] && echo --prerelease)
 
       - name: Remove keychain
         if: always()
