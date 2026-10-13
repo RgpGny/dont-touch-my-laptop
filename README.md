@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://rgpgny.github.io/dont-touch-my-laptop/assets/icon-dark.png" />
-    <img src="https://rgpgny.github.io/dont-touch-my-laptop/assets/icon.png" width="112" alt="" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://rgpgny.github.io/dont-touch-my-laptop/assets/app-icon-dark.png" />
+    <img src="https://rgpgny.github.io/dont-touch-my-laptop/assets/app-icon-light.png" width="112" alt="" />
   </picture>
 </p>
 
