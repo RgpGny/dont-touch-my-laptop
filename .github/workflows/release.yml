@@ -38,14 +38,6 @@ jobs:
           version=$(node -p "require('./package.json').version")
           [ "v$version" = "${{ inputs.tag }}" ] || { echo "package.json is $version, tag is ${{ inputs.tag }}"; exit 1; }
 
-      # The app icon is an Icon Composer document; compiling it needs actool from Xcode 26+.
-      - name: Select Xcode 26
-        run: |
-          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          [ -n "$xcode" ] || { echo "no Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; }
-          sudo xcode-select -s "$xcode"
-          xcrun actool --version | grep -A1 short-bundle-version
-
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -73,23 +65,6 @@ jobs:
           security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/dtml.p12"
           security find-identity -p codesigning "$kc" | grep -q "$DTML_SIGN_SHA1" || { echo "certificate not found"; exit 1; }
-
-      # actool's helper (ibtoold) sometimes crashes on its first launch on a fresh runner, which
-      # fails electron-builder's icon step. Compile the icon once here, with retries, so the
-      # helper is up before the real build.
-      - name: Warm up actool
-        run: |
-          out="$RUNNER_TEMP/actool-warmup"
-          for i in 1 2 3; do
-            rm -rf "$out" && mkdir -p "$out"
-            if xcrun actool build/icon.icon --compile "$out" --app-icon icon --platform macosx \
-              --target-device mac --minimum-deployment-target 26.0 \
-              --output-partial-info-plist "$out/info.plist" >/dev/null; then
-              echo "actool ready (attempt $i)"; exit 0
-            fi
-            echo "actool failed (attempt $i), retrying"; sleep 10
-          done
-          exit 1
 
       - name: Build
         run: |
