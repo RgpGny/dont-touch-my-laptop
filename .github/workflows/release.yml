@@ -38,6 +38,14 @@ jobs:
           version=$(node -p "require('./package.json').version")
           [ "v$version" = "${{ inputs.tag }}" ] || { echo "package.json is $version, tag is ${{ inputs.tag }}"; exit 1; }
 
+      # The app icon is an Icon Composer document; compiling it needs actool from Xcode 26+.
+      - name: Select Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$xcode" ] || { echo "no Xcode 26 on this runner"; ls -d /Applications/Xcode*.app; exit 1; }
+          sudo xcode-select -s "$xcode"
+          xcrun actool --version | grep -A1 short-bundle-version
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

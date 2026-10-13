@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="https://rgpgny.github.io/dont-touch-my-laptop/assets/icon.png" width="112" alt="" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://rgpgny.github.io/dont-touch-my-laptop/assets/icon-dark.png" />
+    <img src="https://rgpgny.github.io/dont-touch-my-laptop/assets/icon.png" width="112" alt="" />
+  </picture>
 </p>
 
 <h1 align="center">Don't Touch My Laptop</h1>
