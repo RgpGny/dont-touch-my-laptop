@@ -1,0 +1,47 @@
+# Publishes the landing page and the phone setup page (site/ in the source repo) to GitHub Pages:
+# https://rgpgny.github.io/dont-touch-my-laptop/  and  …/connect/  (the app's QR code opens this).
+name: Site
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or tag in the source repo
+        default: main
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: RgpGny/dont-touch-my-laptop-src
+          ref: ${{ inputs.ref }}
+          ssh-key: ${{ secrets.SOURCE_DEPLOY_KEY }}
+      - name: Check the phone page is up to date
+        run: node scripts/gen-connect-page.mjs --check
+      - name: Collect pages (templates stay out)
+        run: rsync -a --exclude 'template.html' site/ _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

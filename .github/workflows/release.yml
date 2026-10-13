@@ -1,0 +1,109 @@
+# Builds the app from the private source repo, signs it with the project's own certificate and
+# publishes the DMG + update files as a GitHub Release here. Started by the maintainer only
+# (scripts/release.sh in the source repo runs `gh workflow run release.yml -f tag=vX.Y.Z`).
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag in the source repo (e.g. v0.9.0)
+        required: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # SHA1 of "DTML Local Signing (RgpGny)". Updates only install when the new build is signed
+      # with this exact certificate, so the build fails if anything else would be used.
+      DTML_SIGN_SHA1: FC7204110531F396AD42A9346EB63DB17D32D982
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          repository: RgpGny/dont-touch-my-laptop-src
+          ref: ${{ inputs.tag }}
+          ssh-key: ${{ secrets.SOURCE_DEPLOY_KEY }}
+
+      - name: Check version matches tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [ "v$version" = "${{ inputs.tag }}" ] || { echo "package.json is $version, tag is ${{ inputs.tag }}"; exit 1; }
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: swift test --package-path native/daemon
+
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/dtml.keychain-db"
+          kcpass=$(openssl rand -hex 16)
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/dtml.p12"
+          security create-keychain -p "$kcpass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kcpass" "$kc"
+          security import "$RUNNER_TEMP/dtml.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpass" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/dtml.p12"
+          security find-identity -p codesigning "$kc" | grep -q "$DTML_SIGN_SHA1" || { echo "certificate not found"; exit 1; }
+
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pnpm build:native
+          pnpm build
+          pnpm exec electron-builder --mac --publish always
+
+      - name: Verify signature
+        run: |
+          app="dist/mac-universal/Don't Touch My Laptop.app"
+          codesign --verify --deep --strict "$app"
+          codesign -d -r- "$app" 2>&1 | tee /dev/stderr | grep -qi "certificate leaf = H\"$DTML_SIGN_SHA1\"" \
+            || { echo "app is not signed with the project certificate"; exit 1; }
+          lipo -archs "$app/Contents/MacOS/Don't Touch My Laptop"
+
+      - name: Checksums and release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          cd dist
+          shasum -a 256 DontTouchMyLaptop-*.dmg DontTouchMyLaptop-*.zip > SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber -R "$GITHUB_REPOSITORY"
+          notes="../docs/release-notes/$TAG.md"
+          if [ -f "$notes" ]; then gh release edit "$TAG" --notes-file "$notes" -R "$GITHUB_REPOSITORY"; fi
+
+      - name: Remove keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/dtml.keychain-db" 2>/dev/null || true
+
+  site:
+    needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yml
+    with:
+      ref: ${{ inputs.tag }}
+    secrets: inherit
